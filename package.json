@@ -22,6 +22,9 @@
     "directories": {
       "output": "build"
     },
+    "electronDownload":{
+      "mirror":"https://npm.taobao.org/mirrors/electron/"
+    },
     "files": [
       "dist/electron/**/*"
     ],
