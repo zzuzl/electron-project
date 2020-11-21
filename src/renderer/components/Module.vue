@@ -3,30 +3,18 @@
 		<el-header style="font-size: 12px" height="20px">
 			<el-breadcrumb separator="/">
 				<el-breadcrumb-item :to="{ path: '/project' }" :replace=true>项目管理</el-breadcrumb-item>
-				<el-breadcrumb-item>模块管理</el-breadcrumb-item>
+				<el-breadcrumb-item>总成本</el-breadcrumb-item>
 			</el-breadcrumb>
 		</el-header>
 
-    <el-dialog title="添加/编辑模块" :visible.sync="dialogFormVisible">
+    <el-dialog title="编辑模块" :visible.sync="dialogFormVisible">
       <el-form :model="editItem" :rules="rules" ref="ruleForm">
         <el-form-item label="模块名称" :label-width="formLabelWidth" prop="type">
-          <el-input
-            v-model="editItem.type"
-            size="small"
-            style="width:100%;"
-          ></el-input>
+          <label>{{editItem.type}}</label>
         </el-form-item>
         <el-form-item label="成本（元）" :label-width="formLabelWidth" prop="cost">
           <el-input
             v-model.number="editItem.cost"
-            type="number"
-            min="0"
-            size="small"
-          ></el-input>
-        </el-form-item>
-        <el-form-item label="单方指标（元/m^2）" :label-width="formLabelWidth" prop="perPrice">
-          <el-input
-            v-model.number="editItem.perPrice"
             type="number"
             min="0"
             size="small"
@@ -41,23 +29,24 @@
 		
     <el-table :data="tableData" v-loading="loading" height="700">
       <el-table-column prop="type" label="名称" fixed> </el-table-column>
-      <el-table-column prop="cost" label="成本（元）"> </el-table-column>
-			<el-table-column prop="perPrice" label="单方指标（元/m^2）"> </el-table-column>
-      <el-table-column prop="createdAt" label="创建时间"> </el-table-column>
-      <el-table-column label="操作" fixed="right">
-        <template slot="header">
-          <el-button 
-            type="primary"
-            size="small"
-            icon="el-icon-plus"
-            @click="handleAddModule()">
-          </el-button>
+      <el-table-column prop="cost" label="成本（元）">
+        <template slot-scope="scope">
+          <span v-if="scope.row.type === '利润率'">{{ scope.row.cost | numFilter | percent }}</span>
+          <span v-else>{{ scope.row.cost | numFilter }}</span>
         </template>
-        <template slot-scope="scope" v-if="scope.row.proId">
+      </el-table-column>
+			<el-table-column prop="perPrice" label="单方指标（元/m^2）">
+        <template slot-scope="scope">
+          <span>{{ scope.row.perPrice | numFilter }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" fixed="right">
+        <template slot-scope="scope" v-if="project.objectId && !scope.row.notShow">
           <el-button 
             type="text"
             size="small"
             icon="el-icon-view"
+            v-if="!scope.row.detail"
             @click="handleQueryItems(scope.row)">
           </el-button>
           <el-button 
@@ -65,12 +54,6 @@
             size="small"
             icon="el-icon-edit"
             @click="handleEditModule(scope.row)">
-          </el-button>
-          <el-button 
-            type="text"
-            size="small"
-            icon="el-icon-delete"
-            @click="handleDelModule(scope.row)">
           </el-button>
         </template>
       </el-table-column>
@@ -80,25 +63,36 @@
 
 <script>
 import AV from "leancloud-storage";
-const query = new AV.Query("Module");
-const Module = AV.Object.extend("Module");
+const query = new AV.Query('Project');
+const Project = AV.Object.extend("Project");
+const Mapping = {
+  '前期及地下四大块': 'module1',
+  '地下车库土建': 'module2',
+  '主楼土建': 'module3',
+  '其他专业分包': 'module4',
+  '其他费用': 'module5'
+};
 
 export default {
   name: "module-page",
   components: {},
+  filters: {
+    numFilter(value) {
+      if (!value) {
+        return value;
+      }
+      return parseFloat(value).toFixed(2);
+    },
+    percent(value) {
+      if (value != undefined) {
+        return value + '%';
+      }
+      return value;
+    }
+  },
   methods: {
     handleQueryItems(row) {
-      this.$router.push({ name: 'item-page', params: { mid: row.objectId, mName: row.type, pid: row.proId}});
-    },
-    handleAddModule() {
-      if (this.dialogFormVisible) {
-        return;
-      }
-
-      this.editItem = {
-        proId: this.proId,
-      };
-      this.dialogFormVisible = true;
+      this.$router.push({ name: 'item-page', params: { mName: row.type, pid: this.project.objectId}});
     },
     handleCancel() {
       this.dialogFormVisible = false;
@@ -112,12 +106,10 @@ export default {
           _this.displayError("form validation error");
           return;
         }
+        if (row.type == '总收入' || Mapping[row.type]) {
+          _this.updateItem(row);
+        }
       });
-      if (row.objectId) {
-        this.updateItem(row);
-      } else {
-        this.addItem(row);
-      }
     },
     handleEditModule(row) {
       this.dialogFormVisible = true;
@@ -149,32 +141,19 @@ export default {
         this.fetchModules();
       }
     },
-    addItem(row) {
-      const _this = this;
-      const item = new Module();
-      item.set("proId", row.proId);
-      item.set("type", row.type);
-      item.set("cost", row.cost);
-      item.set("perPrice", row.perPrice);
-      item.save().then(
-        (result) => {
-          _this.afterEdit(true);
-        },
-        (error) => {
-          _this.displayError(error);
-          _this.afterEdit(false);
-        }
-      );
-    },
     updateItem(row) {
       const _this = this;
-      const item = AV.Object.createWithoutData("Module", row.objectId);
-      item.set("type", row.type);
-      item.set("cost", row.cost);
-      item.set("perPrice", row.perPrice);
+      const item = AV.Object.createWithoutData("Project", this.project.objectId);
+      if (row.type == "总收入") {
+        item.set("income", row.cost);
+      } else if (Mapping[row.type]) {
+        item.set(Mapping[row.type] + "Cost", row.cost);
+      } else {
+        return;
+      }
       item.save().then(
         (result) => {
-          console.log(`update module succ：`, result);
+          console.log(`update project succ：`, result);
           _this.afterEdit(true);
         },
         (error) => {
@@ -193,29 +172,45 @@ export default {
     fetchModules() {
       const _this = this;
       this.loading = true;
-			query.equalTo("proId", this.proId);
-      query.ascending("createdAt");
-      query.find().then(
+      query.get(this.proId).then(
         (result) => {
           _this.loading = false;
-					var sumCost = 0;
-					_this.tableData = result.map((obj) => {
-						var o = obj.toJSON();
-						sumCost += o.cost;
-						return o;
-					});
+          _this.tableData = [];
+          var obj = result.toJSON();
+          _this.project = obj;
+          var sumCost = 0;
+          var key = "";
+          for (key in Mapping) {
+            var o = {
+              type: key,
+              cost: obj[Mapping[key] + "Cost"]
+            };
+            if (o.cost) {
+              sumCost += o.cost;
+            }
+            if (o.cost && obj.area) {
+              o.perPrice = o.cost / obj.area;
+            }
+            _this.tableData.push(o);
+          }
+					
 					if (_this.tableData.length) {
+            var p = {
+              type: "利润率",
+              notShow: true,
+						};
+            if (obj.income && sumCost) {
+              p.cost = obj.income/sumCost * 100;
+            }
 						_this.tableData.push({
 							type: "总成本合计",
-							cost: sumCost,
-							notShow: true,
+              cost: sumCost,
+              notShow: true,
 						}, {
-							type: "总收入",
-							notShow: true,
-						}, {
-							type: "利润率",
-							notShow: true,
-						});
+              type: "总收入",
+              cost: obj.income,
+              detail: true
+						}, p);
 					}
         },
         (error) => {
@@ -246,13 +241,10 @@ export default {
         cost: [
           { type: 'number', message: '必须为数字值'},
           { required: true, message: '请输入', trigger: 'blur' }
-        ],
-        perPrice: [
-          { type: 'number', message: '必须为数字值'},
-          { required: true, message: '请输入', trigger: 'blur' }
         ]
       },
-      loading: false
+      loading: false,
+      project: {}
     };
   },
 };

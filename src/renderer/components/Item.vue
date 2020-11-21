@@ -8,7 +8,7 @@
         <el-breadcrumb-item
           :to="{ name: 'module-page', params: { pid: proId } }"
           :replace="true"
-          >模块管理</el-breadcrumb-item
+          >总成本</el-breadcrumb-item
         >
         <el-breadcrumb-item>{{ mName }}</el-breadcrumb-item>
       </el-breadcrumb>
@@ -92,12 +92,12 @@
       </el-table-column>
       <el-table-column prop="area" label="建筑面积（m^2）" width="150">
         <template slot-scope="scope">
-          <span>{{scope.row.area}}</span>
+          <span>{{scope.row.area | numFilter}}</span>
         </template>
       </el-table-column>
       <el-table-column prop="ci" label="含量指数" width="150">
         <template slot-scope="scope">
-          <span>{{scope.row.ci}}</span>
+          <span>{{scope.row.ci | numFilter}}</span>
         </template>
       </el-table-column>
       <el-table-column prop="unit" label="单位" width="100">
@@ -107,19 +107,29 @@
       </el-table-column>
       <el-table-column prop="quantity" label="分项工程量" width="150">
         <template slot-scope="scope">
-          <span>{{scope.row.quantity}}</span>
+          <span>{{scope.row.quantity | numFilter}}</span>
         </template>
       </el-table-column>
       <el-table-column prop="qPrice" label="分项单价（元/单位）" width="150">
         <template slot-scope="scope">
-          <span>{{scope.row.qPrice}}</span>
+          <span>{{scope.row.qPrice | numFilter}}</span>
         </template>
       </el-table-column>
       <el-table-column prop="sumPrice" label="合价" width="150">
+        <template slot-scope="scope">
+          <span>{{scope.row.sumPrice | numFilter}}</span>
+        </template>
       </el-table-column>
-      <el-table-column prop="perPrice" label="方指标（元/m^2）" width="150">
+      <el-table-column prop="perPrice" label="单方指标（元/m^2）" width="150">
+        <template slot-scope="scope">
+          <span>{{scope.row.perPrice | numFilter}}</span>
+        </template>
       </el-table-column>
-      <el-table-column prop="percent" label="合价占比（%）" width="150"> </el-table-column>
+      <el-table-column prop="percent" label="合价占比（%）" width="150">
+        <template slot-scope="scope">
+          <span>{{scope.row.percent | numFilter | percent}}</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="note" label="备注" width="200">
         <template slot-scope="scope">
           <span>{{scope.row.note}}</span>
@@ -166,10 +176,33 @@
 import AV from "leancloud-storage";
 const query = new AV.Query("Item");
 const Item = AV.Object.extend("Item");
+const pQuery = new AV.Query('Project');
+const Project = AV.Object.extend("Project");
+const Mapping = {
+  '前期及地下四大块': 'module1',
+  '地下车库土建': 'module2',
+  '主楼土建': 'module3',
+  '其他专业分包': 'module4',
+  '其他费用': 'module5'
+};
 
 export default {
   name: "item-page",
   components: {},
+  filters: {
+    numFilter(value) {
+      if (!value) {
+        return value;
+      }
+      return parseFloat(value).toFixed(2);
+    },
+    percent(value) {
+      if (value != undefined) {
+        return value + '%';
+      }
+      return value;
+    }
+  },
   methods: {
     handleDeleteRow(row) {
       const _this = this;
@@ -234,7 +267,7 @@ export default {
         ci: 0,
         qPrice: 0,
         quantity: 0,
-        mId: this.mId,
+        mId: this.mName,
         proId: this.proId
       };
       this.dialogFormVisible = true;
@@ -251,12 +284,12 @@ export default {
           _this.displayError("form validation error");
           return;
         }
-      });
-      if (row.objectId) {
-        this.updateItem(row);
-      } else {
-        this.addItem(row);
-      }
+        if (row.objectId) {
+          this.updateItem(row);
+        } else {
+          this.addItem(row);
+        }
+      }); 
     },
     afterEdit(succ) {
       this.dialogFormVisible = false;
@@ -338,7 +371,34 @@ export default {
     },
     fetchItems() {
       const _this = this;
-      query.equalTo("mId", this.mId);
+      this.loading = true;
+      pQuery.get(this.proId).then(
+        (result) => {
+          _this.loading = false;
+          var obj = result.toJSON();
+          _this.project = obj;
+          var sumCost = 0;
+          var key = "";
+          for (key in Mapping) {
+            if (obj[Mapping[key] + "Cost"]) {
+              sumCost += obj[Mapping[key] + "Cost"];
+            }
+          }
+          _this.project.sumCost = sumCost;
+          console.log(_this.project);
+          _this.fetchItemsCore();
+        },
+        (error) => {
+          _this.loading = false;
+          _this.displayError(error);
+        }
+      );
+    },
+    fetchItemsCore() {
+      const _this = this;
+      _this.loading = true;
+      query.equalTo("proId", this.proId);
+      query.equalTo("mId", this.mName);
       query.ascending("createdAt");
       query.find().then(
         (result) => {
@@ -360,6 +420,10 @@ export default {
               if (o.sumPrice != undefined && o.area > 0) {
                 o.perPrice = o.sumPrice / o.area;
               }
+              var sumCost = _this.project[Mapping[_this.mName] + 'Cost'];
+              if (o.sumPrice != undefined && sumCost) {
+                o.percent = o.sumPrice / sumCost;
+              }
               child[o.pId].push(o);
             } else {
               newData.push(o);
@@ -378,7 +442,23 @@ export default {
                 oo.perPrice = oo.sumPrice / oo.area;
               }
               sumPrice += oo.sumPrice;
+              var sumCost = _this.project[Mapping[_this.mName] + 'Cost'];
+              if (oo.sumPrice != undefined && sumCost) {
+                oo.percent = oo.sumPrice / sumCost;
+              }
               oo.children = child[oo.objectId];
+            } else {
+              if (oo.ci != undefined && oo.quantity != undefined  && oo.qPrice != undefined) {
+                oo.sumPrice = oo.ci * oo.quantity * oo.qPrice;
+              }
+              if (oo.sumPrice != undefined && oo.area > 0) {
+                oo.perPrice = oo.sumPrice / oo.area;
+              }
+              sumPrice += oo.sumPrice;
+              var sumCost = _this.project[Mapping[_this.mName] + 'Cost'];
+              if (oo.sumPrice != undefined && sumCost) {
+                oo.percent = oo.sumPrice / sumCost;
+              }
             }
           });
           if (newData.length > 0) {
@@ -398,36 +478,57 @@ export default {
     loadAll() {
       return {
         前期及地下四大块: [
-          { value: "人工费" },
-          { value: "材料费" },
-          { value: "专业分包工程" },
+          { value: "前期工程费" },
+          { value: "土方开挖工程" },
+          { value: "桩基工程" },
+          { value: "土方回填" },
+          { value: "基坑支护" },
         ],
         地下车库土建: [
           { value: "人工费" },
           { value: "材料费" },
           { value: "专业分包工程" },
+          { value: "机械费" },
         ],
         主楼土建: [
           { value: "人工费" },
           { value: "材料费" },
           { value: "专业分包工程" },
+          { value: "机械费" },
+          { value: "其他直接费" },
         ],
         其他专业分包: [
-          { value: "人工费" },
-          { value: "材料费" },
-          { value: "专业分包工程" },
+          { value: "地上及地下部分安装工程小计" },
+          { value: "精装修工程" },
+          { value: "设备费" },
+          { value: "室外建安工程费用" },
+          { value: "配套工程费用（红线以外）" },
+          { value: "其他工程费" },
+          { value: "设计勘察费" },
+          { value: "不可预见费" },
+          { value: "小区配套政府收费" },
         ],
         其他费用: [
-          { value: "人工费" },
-          { value: "材料费" },
-          { value: "专业分包工程" },
+          { value: "建设单位管理费" },
+          { value: "建设项目前期咨询费" },
+          { value: "工程勘察费" },
+          { value: "工程设计费" },
+          { value: "工程监理费" },
+          { value: "环境影响咨询服务费" },
+          { value: "招标代理费" },
+          { value: "测绘生产升本费用定额" },
+          { value: "地质灾害危险性评估费" },
+          { value: "地震安全评价费" },
+          { value: "施工图审查费" },
+          { value: "防洪影响咨询服务费" },
+          { value: "项目造价咨询评审费" },
+          { value: "热电联网集中供热入网费" },
         ],
       };
     },
   },
   created() {
-    if (this.$route.params.mid) {
-      this.mId = this.$route.params.mid;
+    if (this.$route.params.pid) {
       this.mName = this.$route.params.mName;
       this.proId = this.$route.params.pid;
       this.fetchItems();
@@ -440,7 +541,6 @@ export default {
     return {
       tableData: [],
       proId: "",
-      mId: "",
       mName: "",
       formInline: {
         user: "",
@@ -450,6 +550,7 @@ export default {
       dialogFormVisible: false,
       formLabelWidth: '200px',
       editItem: {},
+      project: {},
       rules: {
         name: [
           { required: true, message: '请输入', trigger: 'blur' },

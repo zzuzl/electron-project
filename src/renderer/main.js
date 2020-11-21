@@ -17,7 +17,7 @@ Vue.config.productionTip = false
 AV.init({
   appId: "K1Ek0nRD9Bu8BSLJdRB4T29s-gzGzoHsz",
   appKey: "o5s2JIDVwejfLOKGiu2sK8m0",
-  serverURL: "https://k1ek0nrd.lc-cn-n1-shared.com"
+  serverURL: "https://www.zlihj.cn"
 });
 // AV.debug.enable();
 
